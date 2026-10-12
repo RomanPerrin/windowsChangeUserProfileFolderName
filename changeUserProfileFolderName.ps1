@@ -96,7 +96,7 @@ function Get-MenuChoice
     } # end >>> function Get-MenuChoice
 
 
-
+# Getting the user
 $users = Get-LocalUser | where-object Enabled -eq True | Select-Object -Property Name
 if (!$oldUsername) {
     # Write-Host "No username provided"
@@ -106,7 +106,7 @@ if (!$oldUsername) {
 $oldPath = Get-ItemPropertyValue "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$((Get-LocalUser $oldUsername).SID)" ProfileImagePath
 Write-Host "User $oldusername selected. root folder current location: $oldPath"
 
-
+# Getting the new name and path
 if (!$newUsername) {
     # Write-Host "No new username provided"
     $newUsername = Read-Host -Prompt "Enter the new name for the folder"
@@ -118,9 +118,36 @@ $newPath = Join-Path $profilesRootDir $newUsername
 Write-Host ''
 Write-Host "$oldUsername's folder: $oldPath will be moved to: $newPath"
 
-
+# Changing the entry in the registry
 Set-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$((Get-LocalUser $oldUsername).SID)" ProfileImagePath $newPath
 
+# Renaming the folder
 Rename-Item -Path $oldPath -NewName $newPath
 
-write-host Get-ItemPropertyValue "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$((Get-LocalUser $oldUsername).SID)" ProfileImagePath
+
+# Rebuilding the search index
+Set-service -Name WSearch -StartupType Disabled
+
+if ((Get-Service -Name WSearch)."Status" -ne "Stopped") {
+    Stop-Service -Name WSearch
+}
+
+$files = @(
+    "C:\ProgramData\Microsoft\Search\Data\Applications\Windows\Windows.db"
+    "C:\ProgramData\Microsoft\Search\Data\Applications\Windows\Windows-gather.db")
+
+foreach ($file in $files) {
+    if (Test-Path -Path $file) {
+        Remove-Item $file
+    }
+}
+
+while ((Get-Service -Name WSearch)."Status" -ne "Running") {
+    try {
+        Set-service -Name WSearch -StartupType Automatic
+        Start-Service -Name WSearch -WarningAction SilentlyContinue
+        Write-Host "indexing..."
+    } catch {}
+} 
+
+Write-Host "indexing done"
